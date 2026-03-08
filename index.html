@@ -396,8 +396,19 @@ function convertStmt(line, ln, errs) {
   m = line.match(/^(\w+(?:\.\w+)?)\s*=\s*(.+?);?$/);
   if (m && !line.includes('==')) return `${m[1]} = ${cvtExpr(m[2].replace(/;$/,'').trim())}`;
 
+  // single-line if with no braces: if (cond) stmt;
+  m = line.match(/^if\s*\((.+?)\)\s+([^{].+?);?$/);
+  if (m) {
+    const inner = convertStmt(m[2].trim(), ln, errs);
+    return `if ${cvtCond(m[1])} {\n    ${inner}\n}`;
+  }
   m = line.match(/^if\s*\((.+)\)\s*\{?$/);
   if (m) return `if ${cvtCond(m[1])} {`;
+  m = line.match(/^else\s+if\s*\((.+?)\)\s+([^{].+?);?$/);
+  if (m) {
+    const inner = convertStmt(m[2].trim(), ln, errs);
+    return `else if ${cvtCond(m[1])} {\n    ${inner}\n}`;
+  }
   m = line.match(/^else\s+if\s*\((.+)\)\s*\{?$/);
   if (m) return `else if ${cvtCond(m[1])} {`;
   if (/^else\s*\{?$/.test(line)) return 'else {';
@@ -462,56 +473,39 @@ function convertSSToCS(source) {
   const out = [], errs = [];
   const fields = [], startLines = [], updateLines = [], actionBlocks = [];
   let i = 0;
-  let inBlock = null; // 'start' | 'update' | action name
+  let inBlock = null;
   let blockDepth = 0;
   let blockLines = [];
   let actionName = '', actionParams = [];
 
-  // First pass — collect everything
   while (i < lines.length) {
     const raw = lines[i]; const line = raw.trim(); i++;
-    if (!line || line.startsWith('//')) {
-      if (inBlock) blockLines.push(raw);
-      continue;
-    }
+    if (!line || line.startsWith('//')) { if (inBlock) blockLines.push(line); continue; }
 
-    // variable declarations
     const vm = line.match(/^(hidden\s+)?variable\s+(string|int|float|bool|gameobject|list|script)\s+(\w+)(?:\s*=\s*(.+))?$/i);
     if (vm && !inBlock) {
       const hidden=!!vm[1], type=vm[2].toLowerCase(), name=vm[3], val=vm[4]?vm[4].trim():null;
       const csType = SS_TO_CS_TYPES[type]||'object';
       const access = hidden ? 'private' : 'public';
-      let csVal = val ? convertSSVal(val, type) : defaultCSVal(csType);
-      if (type==='list') { fields.push(`    ${access} ${csType} ${name} = new ${csType}();`); }
-      else if (type==='gameobject') { fields.push(`    ${access} ${csType} ${name};`); }
-      else if (type==='script') {
-        const scriptType = val||'MonoBehaviour';
-        fields.push(`    ${access} ${scriptType} ${name};`);
-      }
-      else fields.push(`    ${access} ${csType} ${name} = ${csVal};`);
+      if (type==='list')       fields.push(`    ${access} ${csType} ${name} = new ${csType}();`);
+      else if (type==='gameobject') fields.push(`    ${access} GameObject ${name};`);
+      else if (type==='script') fields.push(`    ${access} ${val||'MonoBehaviour'} ${name};`);
+      else fields.push(`    ${access} ${csType} ${name} = ${convertSSVal(val, type) || defaultCSVal(csType)};`);
       continue;
     }
 
-    // on Start
-    if (/^on\s+Start\s*\{?$/i.test(line)) {
-      inBlock='start'; blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
-    }
-    // on Update
-    if (/^on\s+Update\s*\{?$/i.test(line)) {
-      inBlock='update'; blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
-    }
+    if (/^on\s+Start\s*\{?$/i.test(line))  { inBlock='start';  blockDepth=1; blockLines=[]; continue; }
+    if (/^on\s+Update\s*\{?$/i.test(line)) { inBlock='update'; blockDepth=1; blockLines=[]; continue; }
 
-    // action
     const am = line.match(/^action\s+(\w+)\s*\(([^)]*)\)\s*\{?$/i);
     if (am) {
       inBlock='action'; actionName=am[1];
       actionParams = am[2].trim() ? am[2].split(',').map(p=>p.trim()).filter(Boolean) : [];
-      blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
+      blockDepth=1; blockLines=[]; continue;
     }
 
-    // block body
     if (inBlock) {
-      if (line==='{') { blockDepth++; continue; }
+      if (line==='{') { blockDepth++; blockLines.push(line); continue; }
       if (line==='}') {
         blockDepth--;
         if (blockDepth<=0) {
@@ -520,12 +514,12 @@ function convertSSToCS(source) {
           if (inBlock==='action') actionBlocks.push({name:actionName, params:actionParams, lines:[...blockLines]});
           inBlock=null; blockLines=[]; continue;
         }
+        blockLines.push(line); continue;
       }
-      blockLines.push(raw);
+      blockLines.push(line);
     }
   }
 
-  // Build C# class — try to infer class name from comment if present
   const firstLine = source.split('\n').find(l => l.includes('converted from'));
   const classNameMatch = firstLine && firstLine.match(/converted from (\w+)\.cs/i);
   const className = classNameMatch ? classNameMatch[1] : 'SSConverted';
@@ -536,34 +530,16 @@ function convertSSToCS(source) {
   out.push('');
   out.push(`public class ${className} : MonoBehaviour`);
   out.push('{');
-
-  // Fields
   if (fields.length) { fields.forEach(f => out.push(f)); out.push(''); }
 
-  // Start
-  if (startLines.length) {
-    out.push('    void Start()');
-    out.push('    {');
-    startLines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
-    out.push('    }');
-    out.push('');
-  }
+  if (startLines.length)  { out.push('    void Start()');  out.push('    {'); emitBody(startLines,  out, errs, '        '); out.push('    }'); out.push(''); }
+  if (updateLines.length) { out.push('    void Update()'); out.push('    {'); emitBody(updateLines, out, errs, '        '); out.push('    }'); out.push(''); }
 
-  // Update
-  if (updateLines.length) {
-    out.push('    void Update()');
-    out.push('    {');
-    updateLines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
-    out.push('    }');
-    out.push('');
-  }
-
-  // Actions
   actionBlocks.forEach(ab => {
     const paramStr = ab.params.map(p=>`object ${p}`).join(', ');
     out.push(`    public void ${ab.name}(${paramStr})`);
     out.push('    {');
-    ab.lines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
+    emitBody(ab.lines, out, errs, '        ');
     out.push('    }');
     out.push('');
   });
@@ -572,17 +548,45 @@ function convertSSToCS(source) {
   return { output: out.join('\n'), errors: errs };
 }
 
+// Converts a list of S# body lines into indented C# lines, handling nested blocks
+function emitBody(lines, out, errs, indent) {
+  let idx = 0;
+  function emit(lines, indent) {
+    while (idx < lines.length) {
+      const line = lines[idx].trim(); idx++;
+      if (!line) continue;
+      if (line === '}') { out.push(indent.slice(4) + '}'); return; }
+      if (line === '{') continue;
+
+      const isBlock =
+        /^if\s+/.test(line) || /^else(\s+if\s+|\s*$)/.test(line) ||
+        /^loop\s+while\s+/i.test(line) || /^for\s+\w+\s*=/i.test(line);
+
+      if (isBlock) {
+        const converted = convertSSLine(line, errs, idx);
+        if (converted !== null) {
+          out.push(indent + converted);
+          out.push(indent + '{');
+          emit(lines, indent + '    ');
+        }
+      } else {
+        const converted = convertSSLine(line, errs, idx);
+        if (converted !== null) out.push(indent + converted);
+      }
+    }
+  }
+  emit(lines, indent);
+}
+
 function convertSSLine(line, errs, ln) {
   if (!line || line === '{' || line === '}') return null;
   if (line.startsWith('//')) return line;
 
   let m;
 
-  // say -> Debug.Log
   m = line.match(/^say\s+(.+)$/);
   if (m) return `Debug.Log(${ssExprToCS(m[1])});`;
 
-  // hidden variable inside block
   m = line.match(/^(?:hidden\s+)?variable\s+(\w+)\s+(\w+)(?:\s*=\s*(.+))?$/i);
   if (m) {
     const type=SS_TO_CS_TYPES[m[1].toLowerCase()]||'object', name=m[2];
@@ -590,67 +594,51 @@ function convertSSLine(line, errs, ln) {
     return `${type} ${name} = ${val};`;
   }
 
-  // wait X seconds -> yield return new WaitForSeconds(X)
   m = line.match(/^wait\s+(.+?)\s+seconds$/i);
   if (m) return `yield return new WaitForSeconds(${ssExprToCS(m[1])});`;
 
-  // if
-  m = line.match(/^if\s+(.+?)\s*\{?$/);
-  if (m) return `if (${ssCondToCS(m[1])})${line.endsWith('{')?'':''}\n        {`;
+  // block openers — return just the condition line, emitBody adds the braces
+  m = line.match(/^if\s+(.+?)\s*\{?\s*$/);
+  if (m) return `if (${ssCondToCS(m[1].replace(/\{$/,'').trim())})`;
 
-  // else if
-  m = line.match(/^else\s+if\s+(.+?)\s*\{?$/);
-  if (m) return `else if (${ssCondToCS(m[1])})\n        {`;
+  m = line.match(/^else\s+if\s+(.+?)\s*\{?\s*$/);
+  if (m) return `else if (${ssCondToCS(m[1].replace(/\{$/,'').trim())})`;
 
-  // else
-  if (/^else\s*\{?$/.test(line)) return 'else\n        {';
+  if (/^else\s*\{?\s*$/.test(line)) return 'else';
 
-  // closing brace
-  if (line === '}') return '}';
+  m = line.match(/^loop\s+while\s+(.+?)\s*\{?\s*$/i);
+  if (m) return `while (${ssCondToCS(m[1].replace(/\{$/,'').trim())})`;
 
-  // loop while
-  m = line.match(/^loop\s+while\s+(.+?)\s*\{?$/i);
-  if (m) return `while (${ssCondToCS(m[1])})\n        {`;
-
-  // for
-  m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+step\s+(.+?))?\s*\{?$/i);
+  m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+step\s+(.+?))?\s*\{?\s*$/i);
   if (m) {
     const step = m[4]||'1';
-    const op = parseFloat(step)<0 ? '>=' : '<=';
+    const op = parseFloat(step) < 0 ? '>=' : '<=';
     const inc = step==='1' ? `${m[1]}++` : step==='-1' ? `${m[1]}--` : `${m[1]} += ${step}`;
-    return `for (int ${m[1]} = ${ssExprToCS(m[2])}; ${m[1]} ${op} ${ssExprToCS(m[3])}; ${inc})\n        {`;
+    return `for (int ${m[1]} = ${ssExprToCS(m[2])}; ${m[1]} ${op} ${ssExprToCS(m[3])}; ${inc})`;
   }
 
-  // return
   m = line.match(/^return\s*(.*?)$/);
   if (m) return m[1].trim() ? `return ${ssExprToCS(m[1].trim())};` : 'return;';
 
-  // enable / disable
-  m = line.match(/^enable\s+(\w+)$/i);   if (m) return `${m[1]}.SetActive(true);`;
-  m = line.match(/^disable\s+(\w+)$/i);  if (m) return `${m[1]}.SetActive(false);`;
-  m = line.match(/^destroy\s+(\w+)$/i);  if (m) return `Destroy(${m[1]});`;
+  m = line.match(/^enable\s+(\w+)$/i);  if (m) return `${m[1]}.SetActive(true);`;
+  m = line.match(/^disable\s+(\w+)$/i); if (m) return `${m[1]}.SetActive(false);`;
+  m = line.match(/^destroy\s+(\w+)$/i); if (m) return `Destroy(${m[1]});`;
 
-  // move obj to x y z
   m = line.match(/^move\s+(\w+)\s+to\s+(.+?)\s+(.+?)\s+(.+?)$/i);
   if (m) return `${m[1]}.transform.position = new Vector3(${ssExprToCS(m[2])}, ${ssExprToCS(m[3])}, ${ssExprToCS(m[4])});`;
 
-  // change obj.x by val
   m = line.match(/^change\s+(\w+(?:\.\w+)?)\s+by\s+(.+?)$/i);
   if (m) return `${m[1]} += ${ssExprToCS(m[2])};`;
 
-  // add val to list
   m = line.match(/^add\s+(.+?)\s+to\s+(\w+)$/i);
   if (m) return `${m[2]}.Add(${ssExprToCS(m[1])});`;
 
-  // remove pos from list
   m = line.match(/^remove\s+(.+?)\s+from\s+(\w+)$/i);
   if (m) return `${m[2]}.RemoveAt((int)(${ssExprToCS(m[1])}) - 1);`;
 
-  // assignment: name = expr  or  obj.prop = expr
   m = line.match(/^(\w+(?:\.\w+)?(?:\[\d+\])?)\s*=\s*(.+?)$/);
   if (m && !line.includes('==')) return `${m[1]} = ${ssExprToCS(m[2])};`;
 
-  // action call: Name(args)  or  obj.Method(args)
   m = line.match(/^(\w+(?:\.\w+)?)\s*\(([^)]*)\)$/);
   if (m) {
     const args = m[2] ? m[2].split(',').map(a=>ssExprToCS(a.trim())).join(', ') : '';
@@ -706,13 +694,16 @@ function highlightSS(code) {
     'wait','seconds','enable','disable','destroy','move','change','by','on','Start','Update',
     'add','remove','from','isActive','string','int','float','bool','gameobject','list','script'];
   return code.split('\n').map(line => {
-    line = esc(line);
+    line = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if (line.trim().startsWith('//')) return `<span class="cmt">${line}</span>`;
-    line = line.replace(/"([^"]*)"/g, `<span class="str">"$1"</span>`);
-    line = line.replace(/\b(\d+\.?\d*)\b/g, `<span class="num">$1</span>`);
-    line = line.replace(/\b(yes|no|null)\b/g, `<span class="boo">$1</span>`);
-    line = line.replace(/\baction\s+(\w+)/g, `<span class="kw">action</span> <span class="act">$1</span>`);
-    KW.forEach(k => { line = line.replace(new RegExp(`\\b${k}\\b`,'g'), `<span class="kw">${k}</span>`); });
+    // Replace in segments — split on spans so we don't corrupt injected HTML
+    line = applyHighlight(line, [
+      [/"([^"]*)"/g,       (_, s) => `<span class="str">"${s}"</span>`],
+      [/\b(\d+\.?\d*)\b/g, (_, n) => `<span class="num">${n}</span>`],
+      [/\b(yes|no|null)\b/g, (_, b) => `<span class="boo">${b}</span>`],
+      [/\baction\b/g,      () => `<span class="kw">action</span>`],
+      ...KW.map(k => [new RegExp(`\\b${k}\\b`, 'g'), () => `<span class="kw">${k}</span>`]),
+    ]);
     return line;
   }).join('\n');
 }
@@ -722,17 +713,43 @@ function highlightCS(code) {
     'if','else','while','for','foreach','new','null','true','false','static','using','var',
     'List','GameObject','MonoBehaviour','Debug','Vector3','yield','IEnumerator'];
   return code.split('\n').map(line => {
-    line = esc(line);
+    line = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if (line.trim().startsWith('//')) return `<span class="cmt">${line}</span>`;
-    line = line.replace(/"([^"]*)"/g, `<span class="str">"$1"</span>`);
-    line = line.replace(/\b(\d+\.?\d*f?)\b/g, `<span class="num">$1</span>`);
-    line = line.replace(/\b(true|false|null)\b/g, `<span class="boo">$1</span>`);
-    KW.forEach(k => { line = line.replace(new RegExp(`\\b${k}\\b`,'g'), `<span class="kw">${k}</span>`); });
+    line = applyHighlight(line, [
+      [/"([^"]*)"/g,         (_, s) => `<span class="str">"${s}"</span>`],
+      [/\b(\d+\.?\d*f?)\b/g, (_, n) => `<span class="num">${n}</span>`],
+      [/\b(true|false|null)\b/g, (_, b) => `<span class="boo">${b}</span>`],
+      ...KW.map(k => [new RegExp(`\\b${k}\\b`, 'g'), () => `<span class="kw">${k}</span>`]),
+    ]);
     return line;
   }).join('\n');
 }
 
-function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Apply replacements only outside of existing <span>...</span> tags
+function applyHighlight(line, replacements) {
+  for (const [pattern, replacer] of replacements) {
+    // Split into [outside, inside, outside, inside, ...] segments
+    const parts = [];
+    let last = 0;
+    const spanRe = /<span[^>]*>.*?<\/span>/g;
+    let sm;
+    const spans = [];
+    spanRe.lastIndex = 0;
+    while ((sm = spanRe.exec(line)) !== null) spans.push({start: sm.index, end: sm.index + sm[0].length, text: sm[0]});
+    // Rebuild line replacing only outside-span segments
+    let result = '';
+    let pos = 0;
+    for (const sp of spans) {
+      const outside = line.slice(pos, sp.start);
+      result += outside.replace(pattern, replacer);
+      result += sp.text; // keep span as-is
+      pos = sp.end;
+    }
+    result += line.slice(pos).replace(pattern, replacer);
+    line = result;
+  }
+  return line;
+}
 
 // ================================================================
 // UI
