@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S# Converter</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0d0f14;
+    --panel:   #12151c;
+    --border:  #1e2330;
+    --border2: #2a3045;
+    --text:    #c8d0e0;
+    --dim:     #5a6380;
+    --accent:  #4f9eff;
+    --accent2: #7c5cfc;
+    --green:   #3dd68c;
+    --red:     #ff5b6b;
+    --yellow:  #f0c060;
+    --code-bg: #0a0c10;
+    --line:    #1a1f2e;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; overflow: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 40px 40px; opacity: 0.4; pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; top: -200px; left: -200px; width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(79,158,255,0.06) 0%, transparent 70%); pointer-events: none; z-index: 0;
+  }
+  .glow2 { position: fixed; bottom: -200px; right: -100px; width: 500px; height: 500px; background: radial-gradient(circle, rgba(124,92,252,0.07) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+
+  .app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* HEADER */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; height: 58px; border-bottom: 1px solid var(--border); background: rgba(13,15,20,0.9); backdrop-filter: blur(12px); flex-shrink: 0; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-badge { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.05em; }
+  .logo-title { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+  .logo-sub { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+
+  /* TABS */
+  .converter-tabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+  .tab-btn { font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 600; padding: 5px 14px; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; white-space: nowrap; }
+  .tab-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+  .tab-btn.inactive { background: transparent; color: var(--dim); }
+  .tab-btn.inactive:hover { color: var(--text); }
+  .tab-btn.soon { background: transparent; color: var(--dim); opacity: 0.45; cursor: not-allowed; }
+  .soon-tag { font-size: 9px; background: var(--border2); color: var(--dim); padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+
+  /* TOOLBAR */
+  .toolbar { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; height: 46px; border-bottom: 1px solid var(--border); background: rgba(18,21,28,0.6); flex-shrink: 0; }
+  .toolbar-label { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+  .toolbar-right { display: flex; gap: 8px; align-items: center; }
+  .btn { display: flex; align-items: center; gap: 6px; font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-ghost { background: var(--panel); border: 1px solid var(--border2); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* PANELS */
+  .panels { display: flex; flex: 1; overflow: hidden; }
+  .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+  .panel + .panel { border-left: 1px solid var(--border); }
+  .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; height: 38px; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .panel-label { font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+  .panel-label.cs  { color: #7ec8e3; }
+  .panel-label.ss  { color: var(--green); }
+  .panel-actions { display: flex; gap: 6px; align-items: center; }
+  .mini-btn { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border2); background: transparent; color: var(--dim); cursor: pointer; transition: all 0.15s; }
+  .mini-btn:hover { color: var(--text); border-color: var(--text); }
+  .mini-btn.dl { color: var(--green); border-color: rgba(61,214,140,0.3); }
+  .mini-btn.dl:hover { background: rgba(61,214,140,0.1); }
+
+  /* EDITOR */
+  .editor-wrap { flex: 1; overflow: hidden; position: relative; }
+  textarea { width: 100%; height: 100%; background: var(--code-bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7; padding: 20px; border: none; outline: none; resize: none; tab-size: 4; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+  textarea::placeholder { color: var(--dim); opacity: 0.5; }
+  .output-area { width: 100%; height: 100%; background: var(--code-bg); font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7; padding: 20px; overflow: auto; white-space: pre; color: var(--text); }
+  .output-area .kw  { color: #7ec8ff; }
+  .output-area .str { color: #98d994; }
+  .output-area .num { color: #f0c060; }
+  .output-area .cmt { color: #4a5568; font-style: italic; }
+  .output-area .boo { color: #c792ea; }
+  .output-area .act { color: #ffa07a; }
+  .output-area .typ { color: #7ec8e3; }
+
+  /* ERRORS */
+  .errors-panel { height: 0; overflow: hidden; transition: height 0.25s ease; border-top: 1px solid transparent; background: rgba(255,91,107,0.04); flex-shrink: 0; }
+  .errors-panel.open { height: 140px; border-top-color: rgba(255,91,107,0.2); }
+  .errors-inner { padding: 12px 20px; overflow-y: auto; height: 100%; }
+  .error-title { font-size: 11px; font-weight: 700; color: var(--red); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+  .error-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px; background: rgba(255,91,107,0.07); border: 1px solid rgba(255,91,107,0.15); border-radius: 6px; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .error-icon { color: var(--red); flex-shrink: 0; }
+  .error-line { color: var(--dim); flex-shrink: 0; min-width: 50px; }
+  .error-msg  { color: #ffb3b8; }
+
+  /* STATUS */
+  .statusbar { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 26px; background: rgba(10,12,16,0.9); border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--dim); flex-shrink: 0; }
+  .status-left { display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); transition: all 0.3s; }
+  .status-dot.ok    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.error { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+  /* EMPTY STATE */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--dim); pointer-events: none; user-select: none; }
+  .empty-icon { font-size: 36px; opacity: 0.25; }
+  .empty-text { font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.4; }
+
+  /* COMING SOON OVERLAY */
+  .coming-soon { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; color: var(--dim); user-select: none; }
+  .cs-badge { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: var(--border); color: var(--dim); padding: 4px 12px; border-radius: 20px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .cs-title { font-size: 20px; font-weight: 700; color: var(--text); opacity: 0.4; }
+  .cs-sub { font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.3; }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--border2); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 18px; border-radius: 8px; opacity: 0; transition: all 0.25s; pointer-events: none; z-index: 100; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+</style>
+</head>
+<body>
+<div class="glow2"></div>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="logo-badge">S#</div>
+      <span class="logo-title">Converter <span class="logo-sub">for Unity</span></span>
+    </div>
+    <div class="converter-tabs">
+      <button class="tab-btn active" id="tab-cs-to-ss" onclick="switchTab('cs-to-ss')">Unity C# → S#</button>
+      <button class="tab-btn inactive" id="tab-ss-to-cs" onclick="switchTab('ss-to-cs')">Unity S# → C#</button>
+      <button class="tab-btn soon" disabled>Normal C# → S# <span class="soon-tag">SOON</span></button>
+    </div>
+  </header>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <span class="toolbar-label" id="toolbar-label">Unity C# → S#</span>
+    <div class="toolbar-right">
+      <button class="btn btn-ghost" onclick="clearAll()">✕ Clear</button>
+      <button class="btn btn-ghost" onclick="loadExample()">⊞ Example</button>
+      <button class="btn btn-primary" id="convert-btn" onclick="doConvert()">⟶ Convert</button>
+    </div>
+  </div>
+
+  <!-- PANEL AREA -->
+  <div id="tab-content" style="display:flex;flex:1;overflow:hidden;flex-direction:column;">
+
+    <!-- CS TO SS -->
+    <div id="view-cs-to-ss" style="display:flex;flex:1;overflow:hidden;">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-label cs">C# Input</span>
+          <div class="panel-actions"><button class="mini-btn" onclick="clearInput('input-cs-to-ss')">Clear</button></div>
+        </div>
+        <div class="editor-wrap">
+          <textarea id="input-cs-to-ss" placeholder="// Paste your Unity C# script here..."></textarea>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-label ss">S# Output</span>
+          <div class="panel-actions">
+            <button class="mini-btn" onclick="copyOutput('output-cs-to-ss')">Copy</button>
+            <button class="mini-btn dl" id="dl-cs-to-ss" onclick="downloadFile('output-cs-to-ss','converted.ss.txt')" style="display:none">↓ .ss.txt</button>
+          </div>
+        </div>
+        <div class="editor-wrap">
+          <div class="empty-state" id="empty-cs-to-ss"><div class="empty-icon">⟶</div><div class="empty-text">output will appear here</div></div>
+          <div class="output-area" id="output-cs-to-ss" style="display:none"></div>
+        </div>
+        <div class="errors-panel" id="errors-cs-to-ss"><div class="errors-inner" id="errlist-cs-to-ss"></div></div>
+      </div>
+    </div>
+
+    <!-- SS TO CS -->
+    <div id="view-ss-to-cs" style="display:none;flex:1;overflow:hidden;">
+      <div class="panel" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+        <div class="panel-header">
+          <span class="panel-label ss">S# Input</span>
+          <div class="panel-actions"><button class="mini-btn" onclick="clearInput('input-ss-to-cs')">Clear</button></div>
+        </div>
+        <div class="editor-wrap">
+          <textarea id="input-ss-to-cs" placeholder="// Paste your S# script here...
+// Example:
+// variable int health = 100
+// variable string name = &quot;Hero&quot;
+// on Start {
+//     say &quot;Ready!&quot;
+// }"></textarea>
+        </div>
+      </div>
+      <div class="panel" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+        <div class="panel-header">
+          <span class="panel-label cs">C# Output</span>
+          <div class="panel-actions">
+            <button class="mini-btn" onclick="copyOutput('output-ss-to-cs')">Copy</button>
+            <button class="mini-btn dl" id="dl-ss-to-cs" onclick="downloadFile('output-ss-to-cs','converted.cs')" style="display:none">↓ .cs</button>
+          </div>
+        </div>
+        <div class="editor-wrap">
+          <div class="empty-state" id="empty-ss-to-cs"><div class="empty-icon">⟶</div><div class="empty-text">output will appear here</div></div>
+          <div class="output-area" id="output-ss-to-cs" style="display:none"></div>
+        </div>
+        <div class="errors-panel" id="errors-ss-to-cs"><div class="errors-inner" id="errlist-ss-to-cs"></div></div>
+      </div>
+    </div>
+
+    <!-- COMING SOON -->
+    <div id="view-coming-soon" style="display:none;flex:1;overflow:hidden;align-items:center;justify-content:center;">
+      <div class="coming-soon">
+        <div class="cs-badge">Coming Soon</div>
+        <div class="cs-title">Normal C# → S#</div>
+        <div class="cs-sub">non-Unity C# conversion is not yet available</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="statusbar">
+    <div class="status-left">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Ready</span>
+    </div>
+    <span id="stat-info" style="display:none"></span>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ================================================================
+// TAB SWITCHING
+// ================================================================
+
+let currentTab = 'cs-to-ss';
+const TABS = ['cs-to-ss', 'ss-to-cs'];
+
+function switchTab(tab) {
+  currentTab = tab;
+  TABS.forEach(t => {
+    document.getElementById(`tab-${t}`).className = 'tab-btn ' + (t === tab ? 'active' : 'inactive');
+    const v = document.getElementById(`view-${t}`);
+    if (v) v.style.display = t === tab ? 'flex' : 'none';
+  });
+  document.getElementById('view-coming-soon').style.display = 'none';
+
+  const labels = { 'cs-to-ss': 'Unity C# → S#', 'ss-to-cs': 'Unity S# → C#' };
+  document.getElementById('toolbar-label').textContent = labels[tab] || '';
+  resetStatus();
+}
+
+// ================================================================
+// C# → S# CONVERTER
+// ================================================================
+
+const TYPE_MAP = {
+  'int':'int','float':'float','double':'float','long':'int','short':'int','byte':'int','uint':'int',
+  'string':'string','String':'string','bool':'bool','Boolean':'bool',
+  'GameObject':'gameobject','List<string>':'list','List<int>':'list',
+  'List<float>':'list','List<bool>':'list','List<GameObject>':'list','var':'string',
+};
+
+const LIFECYCLE_MAP = { 'Start':'on Start', 'Awake':'on Start', 'OnEnable':'on Start' };
+const UPDATE_METHODS = new Set(['Update','FixedUpdate','LateUpdate']);
+
+const UNSUPPORTED = [
+  { p: /^\s*interface\s+/,         m: 'Interfaces not supported in S#' },
+  { p: /^\s*enum\s+/,              m: 'Enums not supported in S#' },
+  { p: /^\s*namespace\s+/,         m: 'Namespaces not supported in S#' },
+  { p: /^\s*struct\s+/,            m: 'Structs not supported in S#' },
+  { p: /^\s*abstract\s+class/,     m: 'Abstract classes not supported in S#' },
+  { p: /^\s*static\s+class\s+/,    m: 'Static classes not supported in S#' },
+  { p: /^\s*(try|catch|finally)\b/,m: 'try/catch not supported in S#' },
+  { p: /^\s*throw\s+/,             m: 'throw not supported in S#' },
+  { p: /^\s*(delegate|event)\s+/,  m: 'Delegates/events not supported in S#' },
+  { p: /^\s*#(region|endregion|pragma|define)/, m: 'Preprocessor directives not supported in S#' },
+];
+
+function convertCSharpToSS(source) {
+  const lines = source.split('\n');
+  const out = [], errs = [];
+  let i = 0, braceDepth = 0, classDepth = 0, inClass = false;
+  let inHook = false, hookDepth = 0, currentHook = '';
+  let inAction = false, actionDepth = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i]; const line = raw.trim(); i++;
+    if (!line) continue;
+    if (/^using\s+\w/.test(line) && !line.includes('=')) continue;
+
+    // Fatal unsupported
+    let skip = false;
+    for (const u of UNSUPPORTED) { if (u.p.test(line)) { errs.push({line:i, msg:u.m}); skip=true; break; } }
+    if (skip) { if (line.includes('{')) braceDepth++; if (line.includes('}')) braceDepth--; continue; }
+
+    // Class
+    const cm = line.match(/^public\s+class\s+(\w+)\s*:\s*MonoBehaviour/);
+    if (cm) {
+      inClass=true; braceDepth++; classDepth=braceDepth;
+      out.push(`// S# script — converted from ${cm[1]}.cs`); out.push(''); continue;
+    }
+
+    // Brace tracking
+    for (const c of line) { if(c==='{') braceDepth++; if(c==='}') braceDepth--; }
+
+    // Close hook/action
+    if (line === '}' && inHook)   { hookDepth--;   if(hookDepth<=0)   { out.push('}'); inHook=false; out.push(''); }   continue; }
+    if (line === '}' && inAction) { actionDepth--; if(actionDepth<=0) { out.push('}'); inAction=false; out.push(''); } continue; }
+    if (line === '{' || line === '}') continue;
+
+    // Field declarations
+    const fm = line.match(/^(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:readonly\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*(?:=\s*(.+?))?;$/);
+    if (fm && !line.includes('(') && !inHook && !inAction) {
+      const csT=fm[1], name=fm[2], raw_=fm[3]?fm[3].trim().replace(/;$/,''):null;
+      const ssT=TYPE_MAP[csT];
+      if (!ssT) { errs.push({line:i, msg:`Type '${csT}' has no S# equivalent — skipped`}); continue; }
+      const hidden = /^(?:private|protected|internal)/.test(line) ? 'hidden ' : '';
+      const val = raw_ ? convertVal(raw_, ssT) : null;
+      out.push(val ? `${hidden}variable ${ssT} ${name} = ${val}` : `${hidden}variable ${ssT} ${name}`);
+      continue;
+    }
+
+    // Lifecycle methods
+    const lm = line.match(/^(?:(?:private|public|protected)\s+)?void\s+(Start|Awake|OnEnable|Update|FixedUpdate|LateUpdate)\s*\(\s*\)/);
+    if (lm) {
+      const mn=lm[1];
+      currentHook = UPDATE_METHODS.has(mn) ? 'on Update' : (LIFECYCLE_MAP[mn]||'on Start');
+      out.push(''); out.push(`${currentHook} {`); inHook=true; hookDepth=1; continue;
+    }
+
+    // Custom methods → actions
+    const mm = line.match(/^(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*\(([^)]*)\)\s*\{?$/);
+    if (mm && !line.includes('class') && !inHook) {
+      const retT=mm[1], mName=mm[2], pStr=mm[3];
+      if (retT==='void'||TYPE_MAP[retT]) {
+        out.push(''); out.push(`action ${mName}(${parseParams(pStr).join(', ')}) {`);
+        inAction=true; actionDepth=1; continue;
+      }
+    }
+
+    // Inside hook / action
+    if (inHook || inAction) {
+      const conv = convertStmt(line, i, errs);
+      if (conv !== null) out.push('    '+conv);
+      let d=0; for(const c of line){if(c==='{')d++;if(c==='}')d--;}
+      if (inHook)   { hookDepth+=d;   if(hookDepth<=0)   { out.push('}'); inHook=false; out.push(''); } }
+      if (inAction) { actionDepth+=d; if(actionDepth<=0) { out.push('}'); inAction=false; out.push(''); } }
+    }
+  }
+  while(out.length && out[out.length-1]==='') out.pop();
+  return { output: out.join('\n'), errors: errs };
+}
+
+function convertStmt(line, ln, errs) {
+  if (!line||line==='{'||line==='}') return null;
+  if (line.startsWith('//')) return line;
+  if (line.startsWith('/*')||line.startsWith('*')) return `// ${line.replace(/[/*]/g,'').trim()}`;
+
+  let m;
+  m = line.match(/^Debug\.Log(?:Warning|Error)?\s*\(\s*(.+?)\s*\)\s*;?$/);
+  if (m) return `say ${cvtExpr(m[1])}`;
+
+  m = line.match(/^return\s*(.*?);?$/);
+  if (m) return m[1].trim() ? `return ${cvtExpr(m[1].trim())}` : 'return';
+
+  m = line.match(/^(?:var|int|float|double|bool|string|long|short|byte)\s+(\w+)\s*=\s*(.+?);?$/);
+  if (m) { const t=TYPE_MAP[line.split(' ')[0]]||'string'; return `hidden variable ${t} ${m[1]} = ${cvtExpr(m[2].replace(/;$/,'').trim())}`; }
+
+  m = line.match(/^(?:int|float|double|bool|string)\s+(\w+)\s*;?$/);
+  if (m) return `hidden variable ${TYPE_MAP[line.split(' ')[0]]||'string'} ${m[1]}`;
+
+  m = line.match(/^(?:var\s+)?List<\w+>\s+(\w+)\s*=\s*new\s+List<\w+>\s*\(\s*\)\s*;?$/);
+  if (m) return `hidden variable list ${m[1]} = []`;
+
+  m = line.match(/^(\w+)\.transform\.position\s*=\s*new\s+Vector3\s*\(\s*(.+?),\s*(.+?),\s*(.+?)\s*\)\s*;?$/);
+  if (m) return `move ${m[1]} to ${cvtExpr(m[2])} ${cvtExpr(m[3])} ${cvtExpr(m[4])}`;
+
+  m = line.match(/^(\w+(?:\.\w+)?)\s*\+=\s*(.+?);?$/);
+  if (m) return `change ${m[1]} by ${cvtExpr(m[2].replace(/;$/,'').trim())}`;
+  m = line.match(/^(\w+(?:\.\w+)?)\s*-=\s*(.+?);?$/);
+  if (m) return `change ${m[1]} by -${cvtExpr(m[2].replace(/;$/,'').trim())}`;
+  m = line.match(/^(\w+)\+\+;?$/); if (m) return `change ${m[1]} by 1`;
+  m = line.match(/^(\w+)--;?$/);   if (m) return `change ${m[1]} by -1`;
+
+  m = line.match(/^(\w+(?:\.\w+)?)\s*=\s*(.+?);?$/);
+  if (m && !line.includes('==')) return `${m[1]} = ${cvtExpr(m[2].replace(/;$/,'').trim())}`;
+
+  m = line.match(/^if\s*\((.+)\)\s*\{?$/);
+  if (m) return `if ${cvtCond(m[1])} {`;
+  m = line.match(/^else\s+if\s*\((.+)\)\s*\{?$/);
+  if (m) return `else if ${cvtCond(m[1])} {`;
+  if (/^else\s*\{?$/.test(line)) return 'else {';
+
+  m = line.match(/^while\s*\((.+)\)\s*\{?$/);
+  if (m) return `loop while ${cvtCond(m[1])} {`;
+
+  m = line.match(/^for\s*\(\s*(?:int|float)?\s*(\w+)\s*=\s*(.+?);\s*\1\s*[<][=]?\s*(.+?);\s*\1\s*\+\+\s*\)\s*\{?$/);
+  if (m) return `for ${m[1]} = ${cvtExpr(m[2])} to ${cvtExpr(m[3])} {`;
+
+  m = line.match(/^Destroy\s*\(\s*(\w+).*?\)\s*;?$/);
+  if (m) return `destroy ${m[1]}`;
+  m = line.match(/^(\w+)\.SetActive\s*\(\s*(true|false)\s*\)\s*;?$/);
+  if (m) return `${m[2]==='true'?'enable':'disable'} ${m[1]}`;
+
+  m = line.match(/^(\w+)\.(\w+)\s*\(([^)]*)\)\s*;?$/);
+  if (m) {
+    const [,obj,method,args]=m;
+    if (method==='Add') return `add ${cvtExpr(args)} to ${obj}`;
+    if (method==='Remove') return `remove ${cvtExpr(args)} from ${obj}`;
+    const a = args ? args.split(',').map(x=>cvtExpr(x.trim())).join(', ') : '';
+    return `${obj}.${method}(${a})`;
+  }
+  m = line.match(/^(\w+)\s*\(([^)]*)\)\s*;?$/);
+  if (m) { const a=m[2]?m[2].split(',').map(x=>cvtExpr(x.trim())).join(', '):''; return `${m[1]}(${a})`; }
+
+  m = line.match(/yield\s+return\s+new\s+WaitForSeconds\s*\(\s*(.+?)\s*\)/);
+  if (m) return `wait ${cvtExpr(m[1])} seconds`;
+
+  if (line==='}') return '}';
+  errs.push({line:ln, msg:`Could not convert: '${line.substring(0,60)}'`});
+  return `// UNSUPPORTED: ${line}`;
+}
+
+function cvtExpr(e) {
+  if (!e) return '';
+  e = e.trim().replace(/;$/,'');
+  e = e.replace(/\$"([^"]*)"/, (_, s) => '"' + s.replace(/\{([^}]+)\}/g, (__, v) => '" + ' + v + ' + "') + '"');
+  e = e.replace(/\btrue\b/g,'yes').replace(/\bfalse\b/g,'no');
+  e = e.replace(/(\d+\.?\d*)f\b/g,'$1');
+  e = e.replace(/\.Length\b/g,'.length').replace(/\.Count\b/g,'.length');
+  e = e.replace(/\.ToString\(\)/g,'');
+  e = e.replace(/Mathf\.\w+/g, s => '/* '+s+' */');
+  e = e.replace(/\(\s*(?:int|float|string|bool)\s*\)/g,'');
+  return e;
+}
+function cvtCond(c) { c=c.trim(); c=cvtExpr(c); if(c.startsWith('(')&&c.endsWith(')'))c=c.slice(1,-1).trim(); return c; }
+function convertVal(v,t) { if(!v)return null; v=v.trim().replace(/;$/,''); if(t==='float'||t==='int')v=v.replace(/f$/,''); if(t==='bool')v=v==='true'?'yes':v==='false'?'no':v; if(t==='list')return '[]'; return v; }
+function parseParams(s) { if(!s.trim())return[]; return s.split(',').map(p=>{const pts=p.trim().split(/\s+/);return pts[pts.length-1];}); }
+
+// ================================================================
+// S# → C# CONVERTER
+// ================================================================
+
+const SS_TO_CS_TYPES = {
+  'int':'int', 'float':'float', 'string':'string',
+  'bool':'bool', 'gameobject':'GameObject', 'list':'List<object>', 'script':'MonoBehaviour',
+};
+
+function convertSSToCS(source) {
+  const lines = source.split('\n');
+  const out = [], errs = [];
+  const fields = [], startLines = [], updateLines = [], actionBlocks = [];
+  let i = 0;
+  let inBlock = null; // 'start' | 'update' | action name
+  let blockDepth = 0;
+  let blockLines = [];
+  let actionName = '', actionParams = [];
+
+  // First pass — collect everything
+  while (i < lines.length) {
+    const raw = lines[i]; const line = raw.trim(); i++;
+    if (!line || line.startsWith('//')) {
+      if (inBlock) blockLines.push(raw);
+      continue;
+    }
+
+    // variable declarations
+    const vm = line.match(/^(hidden\s+)?variable\s+(string|int|float|bool|gameobject|list|script)\s+(\w+)(?:\s*=\s*(.+))?$/i);
+    if (vm && !inBlock) {
+      const hidden=!!vm[1], type=vm[2].toLowerCase(), name=vm[3], val=vm[4]?vm[4].trim():null;
+      const csType = SS_TO_CS_TYPES[type]||'object';
+      const access = hidden ? 'private' : 'public';
+      let csVal = val ? convertSSVal(val, type) : defaultCSVal(csType);
+      if (type==='list') { fields.push(`    ${access} ${csType} ${name} = new ${csType}();`); }
+      else if (type==='gameobject') { fields.push(`    ${access} ${csType} ${name};`); }
+      else if (type==='script') {
+        const scriptType = val||'MonoBehaviour';
+        fields.push(`    ${access} ${scriptType} ${name};`);
+      }
+      else fields.push(`    ${access} ${csType} ${name} = ${csVal};`);
+      continue;
+    }
+
+    // on Start
+    if (/^on\s+Start\s*\{?$/i.test(line)) {
+      inBlock='start'; blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
+    }
+    // on Update
+    if (/^on\s+Update\s*\{?$/i.test(line)) {
+      inBlock='update'; blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
+    }
+
+    // action
+    const am = line.match(/^action\s+(\w+)\s*\(([^)]*)\)\s*\{?$/i);
+    if (am) {
+      inBlock='action'; actionName=am[1];
+      actionParams = am[2].trim() ? am[2].split(',').map(p=>p.trim()).filter(Boolean) : [];
+      blockDepth=line.includes('{')?1:0; blockLines=[]; continue;
+    }
+
+    // block body
+    if (inBlock) {
+      if (line==='{') { blockDepth++; continue; }
+      if (line==='}') {
+        blockDepth--;
+        if (blockDepth<=0) {
+          if (inBlock==='start')  startLines.push(...blockLines);
+          if (inBlock==='update') updateLines.push(...blockLines);
+          if (inBlock==='action') actionBlocks.push({name:actionName, params:actionParams, lines:[...blockLines]});
+          inBlock=null; blockLines=[]; continue;
+        }
+      }
+      blockLines.push(raw);
+    }
+  }
+
+  // Build C# class — try to infer class name from comment if present
+  const firstLine = source.split('\n').find(l => l.includes('converted from'));
+  const classNameMatch = firstLine && firstLine.match(/converted from (\w+)\.cs/i);
+  const className = classNameMatch ? classNameMatch[1] : 'SSConverted';
+
+  out.push('using UnityEngine;');
+  out.push('using System.Collections;');
+  out.push('using System.Collections.Generic;');
+  out.push('');
+  out.push(`public class ${className} : MonoBehaviour`);
+  out.push('{');
+
+  // Fields
+  if (fields.length) { fields.forEach(f => out.push(f)); out.push(''); }
+
+  // Start
+  if (startLines.length) {
+    out.push('    void Start()');
+    out.push('    {');
+    startLines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
+    out.push('    }');
+    out.push('');
+  }
+
+  // Update
+  if (updateLines.length) {
+    out.push('    void Update()');
+    out.push('    {');
+    updateLines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
+    out.push('    }');
+    out.push('');
+  }
+
+  // Actions
+  actionBlocks.forEach(ab => {
+    const paramStr = ab.params.map(p=>`object ${p}`).join(', ');
+    out.push(`    public void ${ab.name}(${paramStr})`);
+    out.push('    {');
+    ab.lines.forEach(l => { const conv = convertSSLine(l.trim(), errs, i); if(conv!==null) out.push('        '+conv); });
+    out.push('    }');
+    out.push('');
+  });
+
+  out.push('}');
+  return { output: out.join('\n'), errors: errs };
+}
+
+function convertSSLine(line, errs, ln) {
+  if (!line || line === '{' || line === '}') return null;
+  if (line.startsWith('//')) return line;
+
+  let m;
+
+  // say -> Debug.Log
+  m = line.match(/^say\s+(.+)$/);
+  if (m) return `Debug.Log(${ssExprToCS(m[1])});`;
+
+  // hidden variable inside block
+  m = line.match(/^(?:hidden\s+)?variable\s+(\w+)\s+(\w+)(?:\s*=\s*(.+))?$/i);
+  if (m) {
+    const type=SS_TO_CS_TYPES[m[1].toLowerCase()]||'object', name=m[2];
+    const val=m[3]?convertSSVal(m[3],m[1].toLowerCase()):defaultCSVal(type);
+    return `${type} ${name} = ${val};`;
+  }
+
+  // wait X seconds -> yield return new WaitForSeconds(X)
+  m = line.match(/^wait\s+(.+?)\s+seconds$/i);
+  if (m) return `yield return new WaitForSeconds(${ssExprToCS(m[1])});`;
+
+  // if
+  m = line.match(/^if\s+(.+?)\s*\{?$/);
+  if (m) return `if (${ssCondToCS(m[1])})${line.endsWith('{')?'':''}\n        {`;
+
+  // else if
+  m = line.match(/^else\s+if\s+(.+?)\s*\{?$/);
+  if (m) return `else if (${ssCondToCS(m[1])})\n        {`;
+
+  // else
+  if (/^else\s*\{?$/.test(line)) return 'else\n        {';
+
+  // closing brace
+  if (line === '}') return '}';
+
+  // loop while
+  m = line.match(/^loop\s+while\s+(.+?)\s*\{?$/i);
+  if (m) return `while (${ssCondToCS(m[1])})\n        {`;
+
+  // for
+  m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+step\s+(.+?))?\s*\{?$/i);
+  if (m) {
+    const step = m[4]||'1';
+    const op = parseFloat(step)<0 ? '>=' : '<=';
+    const inc = step==='1' ? `${m[1]}++` : step==='-1' ? `${m[1]}--` : `${m[1]} += ${step}`;
+    return `for (int ${m[1]} = ${ssExprToCS(m[2])}; ${m[1]} ${op} ${ssExprToCS(m[3])}; ${inc})\n        {`;
+  }
+
+  // return
+  m = line.match(/^return\s*(.*?)$/);
+  if (m) return m[1].trim() ? `return ${ssExprToCS(m[1].trim())};` : 'return;';
+
+  // enable / disable
+  m = line.match(/^enable\s+(\w+)$/i);   if (m) return `${m[1]}.SetActive(true);`;
+  m = line.match(/^disable\s+(\w+)$/i);  if (m) return `${m[1]}.SetActive(false);`;
+  m = line.match(/^destroy\s+(\w+)$/i);  if (m) return `Destroy(${m[1]});`;
+
+  // move obj to x y z
+  m = line.match(/^move\s+(\w+)\s+to\s+(.+?)\s+(.+?)\s+(.+?)$/i);
+  if (m) return `${m[1]}.transform.position = new Vector3(${ssExprToCS(m[2])}, ${ssExprToCS(m[3])}, ${ssExprToCS(m[4])});`;
+
+  // change obj.x by val
+  m = line.match(/^change\s+(\w+(?:\.\w+)?)\s+by\s+(.+?)$/i);
+  if (m) return `${m[1]} += ${ssExprToCS(m[2])};`;
+
+  // add val to list
+  m = line.match(/^add\s+(.+?)\s+to\s+(\w+)$/i);
+  if (m) return `${m[2]}.Add(${ssExprToCS(m[1])});`;
+
+  // remove pos from list
+  m = line.match(/^remove\s+(.+?)\s+from\s+(\w+)$/i);
+  if (m) return `${m[2]}.RemoveAt((int)(${ssExprToCS(m[1])}) - 1);`;
+
+  // assignment: name = expr  or  obj.prop = expr
+  m = line.match(/^(\w+(?:\.\w+)?(?:\[\d+\])?)\s*=\s*(.+?)$/);
+  if (m && !line.includes('==')) return `${m[1]} = ${ssExprToCS(m[2])};`;
+
+  // action call: Name(args)  or  obj.Method(args)
+  m = line.match(/^(\w+(?:\.\w+)?)\s*\(([^)]*)\)$/);
+  if (m) {
+    const args = m[2] ? m[2].split(',').map(a=>ssExprToCS(a.trim())).join(', ') : '';
+    return `${m[1]}(${args});`;
+  }
+
+  errs.push({line:ln, msg:`Could not convert: '${line.substring(0,60)}'`});
+  return `// UNSUPPORTED: ${line}`;
+}
+
+function ssExprToCS(e) {
+  if (!e) return '';
+  e = e.trim();
+  e = e.replace(/\byes\b/g,'true').replace(/\bno\b/g,'false');
+  e = e.replace(/\.length\b/g,'.Count');
+  e = e.replace(/\.upper\b/g,'.ToUpper()');
+  e = e.replace(/\.lower\b/g,'.ToLower()');
+  e = e.replace(/\.contains\(([^)]+)\)/g,'.Contains($1)');
+  // list index: list[1] -> list[0] (1-based to 0-based)
+  e = e.replace(/(\w+)\[(\d+)\]/g, (_, name, idx) => `${name}[${parseInt(idx)-1}]`);
+  return e;
+}
+
+function ssCondToCS(c) {
+  c = ssExprToCS(c);
+  if (c.startsWith('isActive ')) return c.replace('isActive ','') + '.activeSelf';
+  return c;
+}
+
+function convertSSVal(v, ssType) {
+  v = v.trim().replace(/;$/,'');
+  if (ssType==='bool') return v==='yes'?'true':v==='no'?'false':v;
+  if (ssType==='float') return v.includes('.')?v+'f':v;
+  if (ssType==='string') return v.startsWith('"')?v:`"${v}"`;
+  if (ssType==='list') return 'new List<object>()';
+  return v;
+}
+
+function defaultCSVal(csType) {
+  if (csType==='int') return '0';
+  if (csType==='float') return '0f';
+  if (csType==='string') return '""';
+  if (csType==='bool') return 'false';
+  return 'null';
+}
+
+// ================================================================
+// SYNTAX HIGHLIGHTING
+// ================================================================
+
+function highlightSS(code) {
+  const KW = ['variable','hidden','say','if','else','loop','while','for','to','step','action','return',
+    'wait','seconds','enable','disable','destroy','move','change','by','on','Start','Update',
+    'add','remove','from','isActive','string','int','float','bool','gameobject','list','script'];
+  return code.split('\n').map(line => {
+    line = esc(line);
+    if (line.trim().startsWith('//')) return `<span class="cmt">${line}</span>`;
+    line = line.replace(/"([^"]*)"/g, `<span class="str">"$1"</span>`);
+    line = line.replace(/\b(\d+\.?\d*)\b/g, `<span class="num">$1</span>`);
+    line = line.replace(/\b(yes|no|null)\b/g, `<span class="boo">$1</span>`);
+    line = line.replace(/\baction\s+(\w+)/g, `<span class="kw">action</span> <span class="act">$1</span>`);
+    KW.forEach(k => { line = line.replace(new RegExp(`\\b${k}\\b`,'g'), `<span class="kw">${k}</span>`); });
+    return line;
+  }).join('\n');
+}
+
+function highlightCS(code) {
+  const KW = ['public','private','protected','void','class','int','float','string','bool','return',
+    'if','else','while','for','foreach','new','null','true','false','static','using','var',
+    'List','GameObject','MonoBehaviour','Debug','Vector3','yield','IEnumerator'];
+  return code.split('\n').map(line => {
+    line = esc(line);
+    if (line.trim().startsWith('//')) return `<span class="cmt">${line}</span>`;
+    line = line.replace(/"([^"]*)"/g, `<span class="str">"$1"</span>`);
+    line = line.replace(/\b(\d+\.?\d*f?)\b/g, `<span class="num">$1</span>`);
+    line = line.replace(/\b(true|false|null)\b/g, `<span class="boo">$1</span>`);
+    KW.forEach(k => { line = line.replace(new RegExp(`\\b${k}\\b`,'g'), `<span class="kw">${k}</span>`); });
+    return line;
+  }).join('\n');
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ================================================================
+// UI
+// ================================================================
+
+const outputs = {};
+
+function doConvert() {
+  if (currentTab === 'cs-to-ss') runConvert('cs-to-ss', 'input-cs-to-ss', 'output-cs-to-ss', convertCSharpToSS, highlightSS, 'dl-cs-to-ss', 'errlist-cs-to-ss', 'errors-cs-to-ss');
+  else if (currentTab === 'ss-to-cs') runConvert('ss-to-cs', 'input-ss-to-cs', 'output-ss-to-cs', convertSSToCS, highlightCS, 'dl-ss-to-cs', 'errlist-ss-to-cs', 'errors-ss-to-cs');
+}
+
+function runConvert(id, inputId, outputId, fn, hlFn, dlId, errListId, errPanelId) {
+  const src = document.getElementById(inputId).value.trim();
+  if (!src) { showToast('Paste some code first'); return; }
+
+  const {output, errors} = fn(src);
+  outputs[id] = output;
+
+  const outEl   = document.getElementById(outputId);
+  const emptyEl = document.getElementById(`empty-${id}`);
+  const dlBtn   = document.getElementById(dlId);
+  const errPanel = document.getElementById(errPanelId);
+  const errList  = document.getElementById(errListId);
+
+  if (output) {
+    outEl.innerHTML = hlFn(output);
+    outEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+    dlBtn.style.display = 'inline-block';
+  }
+
+  if (errors.length) {
+    errList.innerHTML = `<div class="error-title">⚠ ${errors.length} issue${errors.length>1?'s':''}</div>` +
+      errors.map(e=>`<div class="error-item"><span class="error-icon">✕</span><span class="error-line">L${e.line}</span><span class="error-msg">${esc(e.msg)}</span></div>`).join('');
+    errPanel.classList.add('open');
+    setStatus('error', `Converted with ${errors.length} issue${errors.length>1?'s':''}`);
+  } else {
+    errPanel.classList.remove('open');
+    setStatus('ok', 'Converted successfully');
+  }
+
+  const lines = output.split('\n').length;
+  const statEl = document.getElementById('stat-info');
+  statEl.style.display = 'flex';
+  statEl.textContent = `${lines} lines  |  ${errors.length ? errors.length+' issue'+(errors.length>1?'s':'') : 'no issues'}`;
+  statEl.style.color = errors.length ? 'var(--red)' : 'var(--green)';
+}
+
+function copyOutput(id) {
+  const text = outputs[id];
+  if (!text) { showToast('Nothing to copy yet'); return; }
+  navigator.clipboard.writeText(text).then(() => showToast('✓ Copied to clipboard'));
+}
+
+function downloadFile(id, filename) {
+  const text = outputs[id];
+  if (!text) { showToast('Nothing to download yet'); return; }
+  const blob = new Blob([text], {type:'text/plain'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+  showToast(`✓ Downloaded ${filename}`);
+}
+
+function clearAll() {
+  ['cs-to-ss','ss-to-cs'].forEach(id => {
+    const inEl = document.getElementById(`input-${id}`);
+    const outEl = document.getElementById(`output-${id}`);
+    const emEl  = document.getElementById(`empty-${id}`);
+    if (inEl)  inEl.value = '';
+    if (outEl) { outEl.innerHTML=''; outEl.style.display='none'; }
+    if (emEl)  emEl.style.display='flex';
+    const dlEl = document.getElementById(`dl-${id}`);
+    if (dlEl) dlEl.style.display='none';
+    const ep = document.getElementById(`errors-${id}`);
+    if (ep) ep.classList.remove('open');
+    outputs[id] = '';
+  });
+  resetStatus();
+}
+
+function clearInput(id) { const el=document.getElementById(id); if(el) el.value=''; }
+
+function setStatus(type, text) {
+  document.getElementById('status-dot').className = `status-dot ${type}`;
+  document.getElementById('status-text').textContent = text;
+}
+function resetStatus() {
+  setStatus('','Ready');
+  document.getElementById('stat-info').style.display='none';
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function loadExample() {
+  if (currentTab==='cs-to-ss') {
+    document.getElementById('input-cs-to-ss').value = `using UnityEngine;
+
+public class PlayerController : MonoBehaviour
+{
+    public int health = 100;
+    public float speed = 5.5f;
+    public bool isAlive = true;
+    public string playerName = "Hero";
+    public GameObject sword;
+    private int score = 0;
+
+    void Start()
+    {
+        Debug.Log("Game started!");
+        Debug.Log(playerName);
+        score = 0;
+    }
+
+    void Update()
+    {
+        if (health <= 0)
+        {
+            isAlive = false;
+            sword.SetActive(false);
+        }
+    }
+
+    public void TakeDamage(int amount)
+    {
+        health -= amount;
+        if (health <= 0)
+        {
+            isAlive = false;
+            Debug.Log("Player died!");
+        }
+    }
+
+    public void Heal(int amount)
+    {
+        health += amount;
+        if (health > 100) health = 100;
+        Debug.Log("Healed!");
+    }
+}`;
+  } else if (currentTab==='ss-to-cs') {
+    document.getElementById('input-ss-to-cs').value = `// S# script — converted from PlayerController.cs
+variable int health = 100
+variable float speed = 5.5
+variable bool isAlive = yes
+variable string playerName = "Hero"
+variable gameobject sword
+hidden variable int score = 0
+
+on Start {
+    say "Game started!"
+    say playerName
+    score = 0
+}
+
+on Update {
+    if health <= 0 {
+        isAlive = no
+        disable sword
+    }
+}
+
+action TakeDamage(amount) {
+    change health by -amount
+    if health <= 0 {
+        isAlive = no
+        say "Player died!"
+    }
+}
+
+action Heal(amount) {
+    change health by amount
+    if health > 100 {
+        health = 100
+    }
+    say "Healed!"
+}`;
+  }
+  showToast('Example loaded');
+}
+
+// Ctrl+Enter to convert
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter') { e.preventDefault(); doConvert(); }
+});
+</script>
+</body>
+</html>
